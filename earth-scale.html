@@ -4,12 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Earth Scale</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --color-text-primary:   #1a1a1a;
       --color-text-secondary: #6b6b6b;
       --color-text-tertiary:  #9a9a9a;
-      --font-sans: system-ui, sans-serif;
+      --font-hand: 'Caveat', cursive;
       --font-mono: ui-monospace, monospace;
     }
     @media (prefers-color-scheme: dark) {
@@ -19,143 +22,279 @@
         --color-text-tertiary:  #666666;
       }
     }
-
     body { background: #111; }
   </style>
 </head>
 <body>
 
-<div style="padding: 1rem 0; font-family: var(--font-mono, monospace);">
-<svg id="diagram" width="100%" viewBox="0 0 680 1480" style="overflow: visible;">
+<div style="padding: 1rem 0; font-family: var(--font-hand, cursive);">
+  <svg id="diagram" width="100%" style="overflow: visible;"></svg>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js"></script>
 
 <script>
-// Scale variable: 1 pixel = KM_PER_PX km
-// y(km) = ORIGIN_Y + (ORIGIN_KM - km) / KM_PER_PX
-// ORIGIN_KM = 800 (top of diagram), ORIGIN_Y = 20
-const KM_PER_PX = 10;
+// === CONSTANTS ===
+const KM_PER_PX = 2;
 const ORIGIN_KM = 800;
 const ORIGIN_Y = 20;
-function y(km) { return ORIGIN_Y + (ORIGIN_KM - km) / KM_PER_PX; }
-
-// Earth radius in km
 const EARTH_R_KM = 6350;
-const EARTH_R_PX = EARTH_R_KM / KM_PER_PX; // 635 px
+const EARTH_R_PX = EARTH_R_KM / KM_PER_PX;
+const AXIS_X = 240;
+const TICK_HALF = 5;
+const LEADER_LEN = 30;
 
-// Surface y positions
-const surfaceTop = y(0);      // 100
-const surfaceBot = y(-12700); // 1370
+function y(km) { return ORIGIN_Y + (ORIGIN_KM - km) / KM_PER_PX; }
+function mirrorAltitude(km) { return -(EARTH_R_KM * 2) - km; }
 
-// Earth center
-const earthCenterY = y(-6350); // 735
-const earthCenterX = 240;
+function formatAltitude(km) {
+  const abs = Math.abs(km);
+  const formatted = abs >= 1000 ? abs.toLocaleString() : String(abs);
+  return (km < 0 ? '\u2212' : '') + formatted + ' km';
+}
 
-// Draw earth circle via foreignObject trick — we'll use SVG circle with clip
-// Circle centered at (240, 735), radius 635px
+// === SVG HELPER ===
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+// === FEATURE DATA ===
+const FEATURES = [
+  {
+    name: 'satellites',
+    altitude_km: 800,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: null,
+    major: true,
+  },
+  {
+    name: 'space station',
+    altitude_km: 400,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: { dx: 30, dy: -5 },
+    major: true,
+  },
+  {
+    name: 'brooklyn to greenport',
+    altitude_km: 160,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: { dx: 80, dy: -20 },
+    major: true,
+  },
+  {
+    name: 'space',
+    altitude_km: 100,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: { dx: 120, dy: -10 },
+    major: true,
+  },
+  {
+    name: 'planes & mountains',
+    altitude_km: 10,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: { dx: 140, dy: 0 },
+    major: false,
+  },
+  {
+    name: 'deepest ocean',
+    altitude_km: -10,
+    color: '#185FA5',
+    span_km: 10,
+    labelSide: 'right',
+    mirror: true,
+    labelOffset: { dx: 80, dy: 25 },
+    major: false,
+  },
+  {
+    name: "center of the earth",
+    altitude_km: -6350,
+    color: null,
+    span_km: 0,
+    labelSide: 'right',
+    mirror: false,
+    labelOffset: null,
+    major: true,
+  },
+];
+
+// === ROUGH.JS SETUP ===
+const svg = document.getElementById('diagram');
+const rc = rough.svg(svg);
+
+const resolvedTextColor = getComputedStyle(document.documentElement)
+  .getPropertyValue('--color-text-primary').trim();
+
+// === VIEWBOX (computed from scale) ===
+const topY = y(ORIGIN_KM);
+const botY = y(mirrorAltitude(ORIGIN_KM));
+const viewH = botY + ORIGIN_Y; // symmetric padding top and bottom
+svg.setAttribute('viewBox', '0 0 680 ' + viewH);
+
+// === DRAW HELPERS ===
+function drawLine(parent, x1, y1, x2, y2, strokeWidth, { opacity, dashed } = {}) {
+  const opts = {
+    stroke: resolvedTextColor,
+    strokeWidth,
+    roughness: 0.8,
+  };
+  if (dashed) opts.strokeLineDash = [1, 3];
+  const node = rc.line(x1, y1, x2, y2, opts);
+  if (opacity != null) node.style.opacity = opacity;
+  parent.appendChild(node);
+}
+
+// === RENDER ===
+function renderStructure(svg) {
+  const g = svgEl('g', { class: 'structure' }, svg);
+
+  // Vertical axis
+  drawLine(g, AXIS_X, topY, AXIS_X, botY, 1, { opacity: 0.33 });
+
+  // Earth body — rough fill, no stroke
+  const earthCY = y(-EARTH_R_KM);
+  const earthDiam = EARTH_R_PX * 2;
+  const body = rc.circle(AXIS_X, earthCY, earthDiam, {
+    stroke: 'none', strokeWidth: 0,
+    fill: 'white',
+    fillStyle: 'cross-hatch',
+    fillWeight: 0.1,
+    hachureGap: 4,
+    roughness: 0.5,
+  });
+  body.style.opacity = 0.2;
+  g.appendChild(body);
+
+  // Habitable zone ring (0–10 km) — green
+  const habitableStroke = 10 / KM_PER_PX;
+  const habitableR = (EARTH_R_KM + 6) / KM_PER_PX;  // "+5" would be more accurate; adjusted to provide a fine space between this and habitable stroke
+  g.appendChild(rc.circle(AXIS_X, earthCY, habitableR * 2, {
+    stroke: '#3B6D11',
+    strokeWidth: habitableStroke,
+    fill: 'none',
+    roughness: 0,
+  }));
+
+  // Ocean ring (0 to −10 km) — blue
+  const oceanStroke = 10 / KM_PER_PX;
+  const oceanR = (EARTH_R_KM - 6) / KM_PER_PX; // "-5" would be more accurate; adjusted to provide a fine space between this and habitable stroke
+  g.appendChild(rc.circle(AXIS_X, earthCY, oceanR * 2, {
+    stroke: '#185FA5',
+    strokeWidth: oceanStroke,
+    fill: 'none',
+    roughness: 0,
+  }));
+
+  // Scale label
+  svgEl('text', {
+    x: 20, y: 16, 'font-size': 11,
+    fill: 'var(--color-text-secondary)',
+    'font-family': 'var(--font-hand)',
+  }, g).textContent = '1 px = ' + KM_PER_PX + ' km';
+}
+
+function renderFeatures(svg, features) {
+  svg.querySelectorAll('.generated').forEach(el => el.remove());
+  const g = svgEl('g', { class: 'generated' }, svg);
+
+  for (const feat of features) {
+    renderOneFeature(g, feat, feat.altitude_km, false);
+    if (feat.mirror) {
+      renderOneFeature(g, feat, mirrorAltitude(feat.altitude_km), true);
+    }
+  }
+}
+
+function renderOneFeature(parent, feat, altitudeKm, isMirrored) {
+  const yPos = y(altitudeKm);
+  const tickWidth = feat.major ? 1.5 : 1;
+
+  // Tick mark
+  drawLine(parent, AXIS_X - TICK_HALF, yPos, AXIS_X + TICK_HALF, yPos, tickWidth);
+
+  // Colored rect (height scales with KM_PER_PX)
+  if (feat.color) {
+    const h = feat.span_km / KM_PER_PX;
+    svgEl('rect', {
+      x: AXIS_X - 0.5, y: yPos - h / 2,
+      width: 1, height: h,
+      fill: feat.color,
+    }, parent);
+  }
+
+  // Labels
+  if (feat.labelSide === 'left') {
+    const labelX = AXIS_X - TICK_HALF - 8;
+
+    svgEl('text', {
+      x: labelX, y: yPos - 2,
+      'text-anchor': 'end', 'font-size': 14,
+      fill: 'var(--color-text-primary)',
+      'font-family': 'var(--font-hand)',
+    }, parent).textContent = feat.name;
+
+    svgEl('text', {
+      x: labelX, y: yPos + 8,
+      'text-anchor': 'end', 'font-size': 10,
+      fill: 'var(--color-text-secondary)',
+      'font-family': 'var(--font-hand)',
+    }, parent).textContent = formatAltitude(altitudeKm);
+  } else {
+    // Right-side: leader line + labels
+    const offset = feat.labelOffset;
+    let leaderEndX, leaderEndY;
+
+    if (offset) {
+      const dy = isMirrored ? -offset.dy : offset.dy;
+      leaderEndX = AXIS_X + TICK_HALF + offset.dx;
+      leaderEndY = yPos + dy;
+    } else {
+      leaderEndX = AXIS_X + TICK_HALF + LEADER_LEN;
+      leaderEndY = yPos;
+    }
+
+    drawLine(parent, AXIS_X + TICK_HALF, yPos, leaderEndX, leaderEndY, 0.75, { opacity: 0.5, dashed: true });
+
+    svgEl('text', {
+      x: leaderEndX + 5, y: leaderEndY - 2,
+      'font-size': 14,
+      fill: 'var(--color-text-primary)',
+      'font-family': 'var(--font-hand)',
+    }, parent).textContent = feat.name;
+
+    svgEl('text', {
+      x: leaderEndX + 5, y: leaderEndY + 8,
+      'font-size': 10,
+      fill: 'var(--color-text-secondary)',
+      'font-family': 'var(--font-hand)',
+    }, parent).textContent = formatAltitude(altitudeKm);
+  }
+}
+
+// TODO: If KM_PER_PX becomes dynamic, labelOffset.dy should scale proportionally
+// or be replaced with an automatic collision avoidance pass.
+
+renderStructure(svg);
+renderFeatures(svg, FEATURES);
 </script>
-
-<!-- Earth circle (radius = 635px at 10km/px, centered on axis) -->
-<!-- Will extend far left and right — SVG overflow:visible lets it draw, browser crops naturally -->
-<circle cx="240" cy="735" r="635" fill="none" stroke="var(--color-text-primary)" stroke-width="0.75" opacity="0.35"/>
-
-<!-- Vertical axis -->
-<line x1="240" y1="20" x2="240" y2="1460" stroke="var(--color-text-primary)" stroke-width="1.5"/>
-
-<!-- ===== TICK MARKS ===== -->
-<line x1="233" y1="20"   x2="247" y2="20"   stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="60"   x2="247" y2="60"   stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="90"   x2="247" y2="90"   stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="99"   x2="247" y2="99"   stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="100"  x2="247" y2="100"  stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="101"  x2="247" y2="101"  stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="735"  x2="247" y2="735"  stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="1369" x2="247" y2="1369" stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="1370" x2="247" y2="1370" stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="1371" x2="247" y2="1371" stroke="var(--color-text-primary)" stroke-width="1"/>
-<line x1="233" y1="1380" x2="247" y2="1380" stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="1420" x2="247" y2="1420" stroke="var(--color-text-primary)" stroke-width="1.5"/>
-<line x1="233" y1="1460" x2="247" y2="1460" stroke="var(--color-text-primary)" stroke-width="1.5"/>
-
-<!-- ===== HABITABLE ZONE: 1×1 green pixel at y=100 (0 km surface) ===== -->
-<rect x="239.5" y="99.5" width="1" height="1" fill="#3B6D11"/>
-
-<!-- ===== DEEPEST OCEAN: 1×1 blue pixel at y=101 (-10km) ===== -->
-<rect x="239.5" y="100.5" width="1" height="1" fill="#185FA5"/>
-
-<!-- Mirror green pixel bottom surface -->
-<rect x="239.5" y="1369.5" width="1" height="1" fill="#3B6D11"/>
-<!-- Mirror blue pixel bottom -->
-<rect x="239.5" y="1370.5" width="1" height="1" fill="#185FA5"/>
-
-<!-- ===== RIGHT-SIDE LABELS ===== -->
-
-<!-- +800 km — satellites -->
-<line x1="247" y1="20" x2="280" y2="20" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="285" y="17"  font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">satellites</text>
-<text x="285" y="30"  font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">800 km</text>
-
-<!-- +400 km — ISS -->
-<line x1="247" y1="60" x2="280" y2="60" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="285" y="57"  font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">space station (ISS)</text>
-<text x="285" y="70"  font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">400 km</text>
-
-<!-- +100 km — Kármán line (diagonal up-right) -->
-<line x1="247" y1="90" x2="330" y2="68" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="65"  font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">space (Kármán line)</text>
-<text x="335" y="78"  font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">100 km</text>
-
-<!-- +10 km — planes & mountains (diagonal down-right) -->
-<line x1="247" y1="99" x2="330" y2="112" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="109" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">planes &amp; mountains</text>
-<text x="335" y="122" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">10 km</text>
-
-<!-- deepest ocean -10 km (diagonal down-right) -->
-<line x1="247" y1="101" x2="330" y2="126" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="123" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">deepest ocean</text>
-<text x="335" y="136" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−10 km</text>
-
-<!-- 0 km — earth's surface (left side) -->
-<text x="225" y="94"  text-anchor="end" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">earth's surface</text>
-<text x="225" y="107" text-anchor="end" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">0 km</text>
-
-<!-- -6350 km — earth center -->
-<line x1="247" y1="735" x2="280" y2="735" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="285" y="732" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">earth's center</text>
-<text x="285" y="745" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−6,350 km</text>
-
-<!-- -12700 km — other surface (left side) -->
-<text x="225" y="1364" text-anchor="end" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">earth's surface</text>
-<text x="225" y="1377" text-anchor="end" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−12,700 km</text>
-
-<!-- planes & mountains mirrored bottom (diagonal down-right) -->
-<line x1="247" y1="1371" x2="330" y2="1358" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="1355" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">planes &amp; mountains</text>
-<text x="335" y="1368" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−12,690 km</text>
-
-<!-- deepest ocean mirrored bottom -->
-<line x1="247" y1="1370" x2="330" y2="1384" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="1381" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">deepest ocean</text>
-<text x="335" y="1394" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−12,710 km</text>
-
-<!-- -12800 km — space bottom (diagonal) -->
-<line x1="247" y1="1380" x2="330" y2="1400" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="335" y="1397" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">space (Kármán line)</text>
-<text x="335" y="1410" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−12,800 km</text>
-
-<!-- -13200 km — space station bottom -->
-<line x1="247" y1="1420" x2="280" y2="1420" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="285" y="1417" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">space station orbit</text>
-<text x="285" y="1430" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−13,100 km</text>
-
-<!-- -13600 km — satellites bottom -->
-<line x1="247" y1="1460" x2="280" y2="1460" stroke="var(--color-text-primary)" stroke-width="0.75"/>
-<text x="285" y="1457" font-size="13" fill="var(--color-text-primary)" font-family="var(--font-sans)">satellites</text>
-<text x="285" y="1470" font-size="11" fill="var(--color-text-secondary)" font-family="var(--font-mono)">−13,500 km</text>
-
-<!-- Scale label -->
-<text x="20" y="16" font-size="11" fill="var(--color-text-tertiary)" font-family="var(--font-mono)">1 px = 10 km</text>
-
-</svg>
-</div>
 
 </body>
 </html>
