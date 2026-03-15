@@ -23,11 +23,37 @@
       }
     }
     body { background: #111; }
+    #scale-picker {
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--color-text-secondary);
+      font-family: var(--font-hand);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0 14px 0 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23a0a0a0'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right center;
+    }
+    #scale-picker option { font-size: 12px; background: #222; color: #ccc; }
   </style>
 </head>
 <body>
 
 <div style="padding: 1rem 0; font-family: var(--font-hand, cursive);">
+  <div style="position:absolute; top: 3em; left: 3em; padding: 0 0 0.25rem 0;">
+    <span style="font-size: 24px; color: var(--color-text-secondary);">1 px = </span>
+    <select id="scale-picker">
+      <option value="1">1 km</option>
+      <option value="2">2 km</option>
+      <option value="5">5 km</option>
+      <option value="10">10 km</option>
+      <option value="25">25 km</option>
+    </select>
+  </div>
   <svg id="diagram" width="100%" style="overflow: visible;"></svg>
 </div>
 
@@ -35,11 +61,10 @@
 
 <script>
 // === CONSTANTS ===
-const KM_PER_PX = 2;
+let KM_PER_PX = 2;
 const ORIGIN_KM = 800;
 const ORIGIN_Y = 20;
 const EARTH_R_KM = 6350;
-const EARTH_R_PX = EARTH_R_KM / KM_PER_PX;
 const AXIS_X = 240;
 const TICK_HALF = 5;
 const LEADER_LEN = 30;
@@ -111,7 +136,7 @@ const FEATURES = [
     span_km: 0,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 140, dy: 0 },
+    labelOffset: { dx: 140, dy: -2 },
     major: false,
   },
   {
@@ -143,11 +168,13 @@ const rc = rough.svg(svg);
 const resolvedTextColor = getComputedStyle(document.documentElement)
   .getPropertyValue('--color-text-primary').trim();
 
-// === VIEWBOX (computed from scale) ===
-const topY = y(ORIGIN_KM);
-const botY = y(mirrorAltitude(ORIGIN_KM));
-const viewH = botY + ORIGIN_Y; // symmetric padding top and bottom
-svg.setAttribute('viewBox', '0 0 680 ' + viewH);
+// === SCALE PICKER ===
+const picker = document.getElementById('scale-picker');
+picker.value = String(KM_PER_PX);
+picker.addEventListener('change', () => {
+  KM_PER_PX = Number(picker.value);
+  render();
+});
 
 // === DRAW HELPERS ===
 function drawLine(parent, x1, y1, x2, y2, strokeWidth, { opacity, dashed } = {}) {
@@ -167,10 +194,13 @@ function renderStructure(svg) {
   const g = svgEl('g', { class: 'structure' }, svg);
 
   // Vertical axis
+  const topY = y(ORIGIN_KM);
+  const botY = y(mirrorAltitude(ORIGIN_KM));
   drawLine(g, AXIS_X, topY, AXIS_X, botY, 1, { opacity: 0.33 });
 
   // Earth body — rough fill, no stroke
   const earthCY = y(-EARTH_R_KM);
+  const EARTH_R_PX = EARTH_R_KM / KM_PER_PX;
   const earthDiam = EARTH_R_PX * 2;
   const body = rc.circle(AXIS_X, earthCY, earthDiam, {
     stroke: 'none', strokeWidth: 0,
@@ -203,12 +233,6 @@ function renderStructure(svg) {
     roughness: 0,
   }));
 
-  // Scale label
-  svgEl('text', {
-    x: 20, y: 16, 'font-size': 11,
-    fill: 'var(--color-text-secondary)',
-    'font-family': 'var(--font-hand)',
-  }, g).textContent = '1 px = ' + KM_PER_PX + ' km';
 }
 
 function renderFeatures(svg, features) {
@@ -289,11 +313,20 @@ function renderOneFeature(parent, feat, altitudeKm, isMirrored) {
   }
 }
 
-// TODO: If KM_PER_PX becomes dynamic, labelOffset.dy should scale proportionally
-// or be replaced with an automatic collision avoidance pass.
+function render() {
+  // Clear everything
+  svg.querySelectorAll('.structure, .generated').forEach(el => el.remove());
 
-renderStructure(svg);
-renderFeatures(svg, FEATURES);
+  // Recompute viewBox
+  const topY = y(ORIGIN_KM);
+  const botY = y(mirrorAltitude(ORIGIN_KM));
+  svg.setAttribute('viewBox', '0 0 680 ' + (botY + ORIGIN_Y));
+
+  renderStructure(svg);
+  renderFeatures(svg, FEATURES);
+}
+
+render();
 </script>
 
 </body>
