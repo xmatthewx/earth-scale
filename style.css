@@ -1,0 +1,31 @@
+:root {
+  --color-text-primary:   #1a1a1a;
+  --color-text-secondary: #6b6b6b;
+  --color-text-tertiary:  #9a9a9a;
+  --font-hand: 'Caveat', cursive;
+  --font-mono: ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-text-primary:   #e8e8e8;
+    --color-text-secondary: #a0a0a0;
+    --color-text-tertiary:  #666666;
+  }
+}
+body { background: #111; }
+#scale-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-hand);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0 14px 0 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23a0a0a0'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right center;
+}
+#scale-picker option { font-size: 12px; background: #222; color: #ccc; }
