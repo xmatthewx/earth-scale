@@ -79,21 +79,71 @@ function renderTerra(rc, svg) {
   }
 }
 
-function renderFeatures(rc, svg, features) {
-  svg.querySelectorAll('.generated').forEach(el => el.remove());
-  const g = svgEl('g', { class: 'generated' }, svg);
+// === LABEL COLLISION DETECTION ===
+const LABEL_GAP = 22; // minimum vertical px between label anchors
 
-  for (const feat of features) {
-    if (KM_PER_PX < feat.minScale || KM_PER_PX >= feat.maxScale) continue;
-    renderOneFeature(rc, g, feat, feat.altitude_km, false);
-    if (feat.mirror) {
-      renderOneFeature(rc, g, feat, mirrorAltitude(feat.altitude_km), true);
+function computePlacement(feat, altitudeKm, isMirrored) {
+  const yPos = y(altitudeKm);
+  const offset = feat.labelOffset;
+  let labelX, labelY;
+
+  if (feat.labelSide === 'left') {
+    labelX = AXIS_X - TICK_HALF - 8;
+    labelY = yPos;
+  } else if (offset) {
+    const dy = isMirrored ? -offset.dy : offset.dy;
+    labelX = AXIS_X + TICK_HALF + offset.dx + 5;
+    labelY = yPos + dy;
+  } else {
+    labelX = AXIS_X + TICK_HALF + LEADER_LEN + 5;
+    labelY = yPos;
+  }
+
+  return { feat, altitudeKm, isMirrored, yPos, labelX, labelY, side: feat.labelSide };
+}
+
+function resolveCollisions(placements) {
+  // Separate left and right, resolve each independently
+  const left = placements.filter(p => p.side === 'left').sort((a, b) => a.labelY - b.labelY);
+  const right = placements.filter(p => p.side === 'right').sort((a, b) => a.labelY - b.labelY);
+
+  for (const group of [left, right]) {
+    for (let i = 1; i < group.length; i++) {
+      const prev = group[i - 1];
+      const curr = group[i];
+      const overlap = (prev.labelY + LABEL_GAP) - curr.labelY;
+      if (overlap > 0) {
+        curr.labelY += overlap;
+      }
     }
   }
 }
 
-function renderOneFeature(rc, parent, feat, altitudeKm, isMirrored) {
-  const yPos = y(altitudeKm);
+function renderFeatures(rc, svg, features) {
+  svg.querySelectorAll('.generated').forEach(el => el.remove());
+  const g = svgEl('g', { class: 'generated' }, svg);
+
+  // 1. Compute placements
+  const placements = [];
+  for (const feat of features) {
+    if (KM_PER_PX < feat.minScale || KM_PER_PX >= feat.maxScale) continue;
+    placements.push(computePlacement(feat, feat.altitude_km, false));
+    if (feat.mirror) {
+      placements.push(computePlacement(feat, mirrorAltitude(feat.altitude_km), true));
+    }
+  }
+
+  // 2. Resolve collisions
+  resolveCollisions(placements);
+
+  // 3. Render
+  for (const p of placements) {
+    renderPlacement(rc, g, p);
+  }
+}
+
+function renderPlacement(rc, parent, p) {
+  const { feat, altitudeKm, yPos, labelX, labelY } = p;
   const tickWidth = feat.major ? 1.5 : 1;
 
   // Tick mark
@@ -111,46 +161,33 @@ function renderOneFeature(rc, parent, feat, altitudeKm, isMirrored) {
 
   // Labels
   if (feat.labelSide === 'left') {
-    const labelX = AXIS_X - TICK_HALF - 8;
-
     svgEl('text', {
-      x: labelX, y: yPos - 2,
+      x: labelX, y: labelY - 2,
       'text-anchor': 'end', 'font-size': 14,
       fill: 'var(--color-text-primary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = feat.name;
 
     svgEl('text', {
-      x: labelX, y: yPos + 8,
+      x: labelX, y: labelY + 8,
       'text-anchor': 'end', 'font-size': 10,
       fill: 'var(--color-text-secondary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = formatAltitude(altitudeKm);
   } else {
-    // Right-side: leader line + labels
-    const offset = feat.labelOffset;
-    let leaderEndX, leaderEndY;
-
-    if (offset) {
-      const dy = isMirrored ? -offset.dy : offset.dy;
-      leaderEndX = AXIS_X + TICK_HALF + offset.dx;
-      leaderEndY = yPos + dy;
-    } else {
-      leaderEndX = AXIS_X + TICK_HALF + LEADER_LEN;
-      leaderEndY = yPos;
-    }
-
-    drawLine(rc, parent, AXIS_X + TICK_HALF, yPos, leaderEndX, leaderEndY, 0.75, { opacity: 0.5, dashed: true });
+    // Leader line from tick to label
+    const leaderEndX = labelX - 5;
+    drawLine(rc, parent, AXIS_X + TICK_HALF, yPos, leaderEndX, labelY, 0.75, { opacity: 0.5, dashed: true });
 
     svgEl('text', {
-      x: leaderEndX + 5, y: leaderEndY - 2,
+      x: labelX, y: labelY - 2,
       'font-size': 14,
       fill: 'var(--color-text-primary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = feat.name;
 
     svgEl('text', {
-      x: leaderEndX + 5, y: leaderEndY + 8,
+      x: labelX, y: labelY + 8,
       'font-size': 10,
       fill: 'var(--color-text-secondary)',
       'font-family': 'var(--font-hand)',
