@@ -44,41 +44,39 @@ function renderStructure(rc, svg, axisTopY, axisBotY) {
 
   // Vertical axis
   drawLine(rc, g, AXIS_X, axisTopY, AXIS_X, axisBotY, 1, { opacity: 0.33 });
+}
 
-  // Earth body — rough fill, no stroke
-  const earthCY = y(-EARTH_R_KM);
-  const EARTH_R_PX = EARTH_R_KM / KM_PER_PX;
-  const earthDiam = EARTH_R_PX * 2;
-  const body = rc.circle(AXIS_X, earthCY, earthDiam, {
-    stroke: 'none', strokeWidth: 0,
-    fill: 'white',
-    fillStyle: 'cross-hatch',
-    fillWeight: 0.1,
-    hachureGap: 4,
-    roughness: 0.5,
-  });
-  body.style.opacity = 0.2;
-  g.appendChild(body);
+function renderTerra(rc, svg) {
+  const g = svgEl('g', { class: 'terra' }, svg);
 
-  // Habitable zone ring (0–10 km) — green
-  const habitableStroke = 10 / KM_PER_PX;
-  const habitableR = (EARTH_R_KM + 6) / KM_PER_PX;
-  g.appendChild(rc.circle(AXIS_X, earthCY, habitableR * 2, {
-    stroke: '#3B6D11',
-    strokeWidth: habitableStroke,
-    fill: 'none',
-    roughness: 0,
-  }));
+  for (const t of TERRA) {
+    if (KM_PER_PX < t.minScale || KM_PER_PX >= t.maxScale) continue;
 
-  // Ocean ring (0 to −10 km) — blue
-  const oceanStroke = 10 / KM_PER_PX;
-  const oceanR = (EARTH_R_KM - 6) / KM_PER_PX;
-  g.appendChild(rc.circle(AXIS_X, earthCY, oceanR * 2, {
-    stroke: '#185FA5',
-    strokeWidth: oceanStroke,
-    fill: 'none',
-    roughness: 0,
-  }));
+    const cy = y(t.center_km);
+    const r = t.radius_km / KM_PER_PX;
+    const opts = { roughness: t.roughness ?? 0 };
+
+    if (t.fill) {
+      opts.fill = t.fill;
+      opts.fillStyle = t.fillStyle ?? 'hachure';
+      opts.fillWeight = t.fillWeight ?? 0.5;
+      opts.hachureGap = t.hachureGap ?? 4;
+    } else {
+      opts.fill = 'none';
+    }
+
+    if (t.stroke) {
+      opts.stroke = t.stroke;
+      opts.strokeWidth = t.strokeWidth_km / KM_PER_PX;
+    } else {
+      opts.stroke = 'none';
+      opts.strokeWidth = 0;
+    }
+
+    const node = rc.circle(AXIS_X, cy, r * 2, opts);
+    if (t.opacity != null) node.style.opacity = t.opacity;
+    g.appendChild(node);
+  }
 }
 
 function renderFeatures(rc, svg, features) {
@@ -161,15 +159,22 @@ function renderOneFeature(rc, parent, feat, altitudeKm, isMirrored) {
 }
 
 function render(rc, svg) {
-  svg.querySelectorAll('.structure, .generated').forEach(el => el.remove());
+  svg.querySelectorAll('.structure, .terra, .generated').forEach(el => el.remove());
 
-  // Compute axis extent from earth mirror range + any visible features beyond it
-  let minKm = mirrorAltitude(ORIGIN_KM); // bottom of earth mirror
-  let maxKm = ORIGIN_KM;                 // top of earth mirror
+  // Compute axis extent from earth mirror range + visible features + visible terra
+  let minKm = mirrorAltitude(ORIGIN_KM);
+  let maxKm = ORIGIN_KM;
   for (const feat of FEATURES) {
     if (KM_PER_PX < feat.minScale || KM_PER_PX >= feat.maxScale) continue;
     if (feat.altitude_km < minKm) minKm = feat.altitude_km;
     if (feat.altitude_km > maxKm) maxKm = feat.altitude_km;
+  }
+  for (const t of TERRA) {
+    if (KM_PER_PX < t.minScale || KM_PER_PX >= t.maxScale) continue;
+    const top = t.center_km + t.radius_km;
+    const bot = t.center_km - t.radius_km;
+    if (bot < minKm) minKm = bot;
+    if (top > maxKm) maxKm = top;
   }
 
   const axisTopY = y(maxKm);
@@ -177,5 +182,6 @@ function render(rc, svg) {
   svg.setAttribute('viewBox', '0 0 680 ' + (axisBotY + ORIGIN_Y));
 
   renderStructure(rc, svg, axisTopY, axisBotY);
+  renderTerra(rc, svg);
   renderFeatures(rc, svg, FEATURES);
 }

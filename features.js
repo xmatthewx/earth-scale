@@ -21,7 +21,7 @@ const FEATURES = [
     labelOffset: { dx: 30, dy: -5 },
     major: true,
     minScale: 0,
-    maxScale: Infinity,
+    maxScale: 26,
   },
   {
     name: 'brooklyn to greenport',
@@ -33,7 +33,7 @@ const FEATURES = [
     labelOffset: { dx: 80, dy: -20 },
     major: true,
     minScale: 0,
-    maxScale: 26,
+    maxScale: 101,
   },
   {
     name: 'space',
@@ -45,7 +45,7 @@ const FEATURES = [
     labelOffset: { dx: 120, dy: -10 },
     major: true,
     minScale: 0,
-    maxScale: Infinity,
+    maxScale: 26,
   },
   {
     name: 'planes & mountains',
@@ -92,7 +92,7 @@ const FEATURES = [
     mirror: false,
     labelOffset: null,
     major: true,
-    minScale: 99,
+    minScale: 24,
     maxScale: Infinity,
   },
 ];
