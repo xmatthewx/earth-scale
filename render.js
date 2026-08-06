@@ -3,7 +3,8 @@ let KM_PER_PX = 2;
 const ORIGIN_KM = 800;
 const ORIGIN_Y = 20;
 const EARTH_R_KM = 6350;
-const AXIS_X = 240;
+const SVG_WIDTH = 680;
+const AXIS_X = 280;
 const TICK_HALF = 5;
 const LEADER_LEN = 30;
 
@@ -216,9 +217,68 @@ function render(rc, svg) {
 
   const axisTopY = y(maxKm);
   const axisBotY = y(minKm);
-  svg.setAttribute('viewBox', '0 0 680 ' + (axisBotY + ORIGIN_Y));
+  svg.setAttribute('viewBox', '0 0 ' + SVG_WIDTH + ' ' + (axisBotY + ORIGIN_Y));
 
   renderStructure(rc, svg, axisTopY, axisBotY);
   renderTerra(rc, svg);
   renderFeatures(rc, svg, FEATURES);
+  updateOffscreenHints(svg);
+}
+
+// === OFF-SCREEN HINTS ===
+// A feature flagged `offscreenHint` gets a corner marker whenever it is drawn
+// but sits outside the viewport — so you know it's out there, and which way.
+function featureScreenY(svg, altitudeKm) {
+  const rect = svg.getBoundingClientRect();
+  return rect.top + y(altitudeKm) * (rect.width / SVG_WIDTH);
+}
+
+let hintSignature = null;
+
+function updateOffscreenHints(svg) {
+  const box = document.getElementById('offscreen-hints');
+  if (!box) return;
+
+  const showing = [];
+  for (const feat of FEATURES) {
+    if (!feat.offscreenHint) continue;
+    if (KM_PER_PX < feat.minScale || KM_PER_PX >= feat.maxScale) continue;
+
+    const screenY = featureScreenY(svg, feat.altitude_km);
+    if (screenY >= 0 && screenY <= window.innerHeight) continue;
+
+    showing.push({ feat, dir: screenY < 0 ? -1 : 1 });
+  }
+
+  // This runs on every scroll event, so only touch the DOM when it changes.
+  const signature = showing.map(s => s.feat.name + s.dir).join('|');
+  if (signature === hintSignature) return;
+  hintSignature = signature;
+
+  box.replaceChildren(...showing.map(s => makeHint(svg, s.feat, s.dir)));
+}
+
+function makeHint(svg, feat, dir) {
+  const btn = document.createElement('button');
+  btn.className = 'oh';
+  btn.type = 'button';
+  btn.textContent = feat.name;
+
+  const arrow = svgEl('svg', {
+    class: 'oh-arrow', width: 14, height: 22, viewBox: '0 0 14 22',
+  }, btn);
+  svgEl('path', {
+    d: 'M7 2 L7 19 M2 13 L7 19.5 L12 13',
+    fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  }, arrow);
+  if (dir < 0) arrow.style.transform = 'rotate(180deg)';
+
+  btn.addEventListener('click', () => {
+    const target = window.scrollY + featureScreenY(svg, feat.altitude_km)
+                 - window.innerHeight / 2;
+    window.scrollTo({ top: target, behavior: 'smooth' });
+  });
+
+  return btn;
 }

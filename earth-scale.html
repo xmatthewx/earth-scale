@@ -12,18 +12,22 @@
 <body>
 
 <div style="padding: 1rem 0; font-family: var(--font-hand, cursive);">
-  <div style="position:fixed; top: 3em; left: 3em; padding: 0 0 0.25rem 0;">
-    <span style="font-size: 24px; color: var(--color-text-secondary);">1 px = </span>
-    <select id="scale-picker">
-      <option value="1">1 km</option>
-      <option value="2">2 km</option>
-      <option value="5">5 km</option>
-      <option value="10">10 km</option>
-      <option value="25">25 km</option>
-      <option value="100">100 km</option>
-    </select>
+  <!-- km-per-px stops; evenly spaced along the slider -->
+  <div id="scale-slider-wrap" data-scales="1 2 5 10 25 100 1000">
+    <div class="ss-readout">1 px = <span id="ss-value"></span></div>
+    <div class="ss-track">
+      <input id="scale-slider" type="range" min="0" step="1"
+             aria-label="kilometers per pixel">
+      <div class="ss-marks" id="ss-marks"></div>
+    </div>
   </div>
   <svg id="diagram" width="100%" style="overflow: visible;"></svg>
+  <div id="offscreen-hints"></div>
+  <p id="statement">
+    A whisper of air wrapping a hunk of rock, a pale blue dot<br>
+    Ten kilometers up, ten more down<br>
+    All the life and our knowledge emerged from this thin line
+  </p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js"></script>

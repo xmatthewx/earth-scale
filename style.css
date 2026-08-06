@@ -13,19 +13,138 @@
   }
 }
 body { background: #111; }
-#scale-picker {
+/* === scale slider === */
+#scale-slider-wrap {
+  position: fixed;
+  left: 3em;
+  top: 3em;
+  /* the diagram's axis sits at 280/680 of the svg width (41vw); keep clear of it */
+  width: clamp(150px, calc(41vw - 90px), 260px);
+  font-family: var(--font-hand);
+  --ss-thumb: 18px;
+}
+.ss-readout {
+  font-size: 24px;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.25rem;
+}
+.ss-track { position: relative; }
+
+#scale-slider {
   appearance: none;
   -webkit-appearance: none;
+  width: 100%;
+  margin: 0;
   background: transparent;
+  cursor: pointer;
+}
+#scale-slider:focus { outline: none; }
+#scale-slider::-webkit-slider-runnable-track {
+  height: var(--ss-thumb);
+  background: linear-gradient(var(--color-text-tertiary), var(--color-text-tertiary))
+              center / 100% 1px no-repeat;
+}
+#scale-slider::-moz-range-track {
+  height: var(--ss-thumb);
+  background: linear-gradient(var(--color-text-tertiary), var(--color-text-tertiary))
+              center / 100% 1px no-repeat;
+}
+#scale-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: var(--ss-thumb);
+  height: var(--ss-thumb);
+  border-radius: 50%;
+  background: var(--color-text-primary);
   border: none;
-  outline: none;
-  color: var(--color-text-secondary);
+}
+#scale-slider::-moz-range-thumb {
+  width: var(--ss-thumb);
+  height: var(--ss-thumb);
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  border: none;
+}
+
+/* markers sit under the track, inset by half a thumb so they line up */
+.ss-marks {
+  position: relative;
+  height: 2.25em;
+  margin-top: 2px;
+  pointer-events: none;
+}
+.ss-mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  /* tappable: reset the button, then pad out to a finger-sized target */
+  pointer-events: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  padding: 0 4px 10px;
+  min-width: 26px;
+  cursor: pointer;
+}
+.ss-mark:focus { outline: none; }
+.ss-mark:hover { color: var(--color-text-secondary); }
+.ss-mark::before {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 5px;
+  margin: 0 auto 3px;
+  background: currentColor;
+}
+.ss-mark.is-current,
+.ss-mark.is-current:hover { color: var(--color-text-primary); }
+
+/* === off-screen hints === */
+#offscreen-hints {
+  position: fixed;
+  right: 6em;
+  bottom: 3em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+.oh {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px;
   font-family: var(--font-hand);
   font-size: 24px;
+  line-height: 1;
+  color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 0 14px 0 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23a0a0a0'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right center;
 }
-#scale-picker option { font-size: 12px; background: #222; color: #ccc; }
+.oh:hover { color: var(--color-text-primary); }
+.oh-arrow { overflow: visible; }
+
+/* === statement === */
+#statement {
+  position: fixed;
+  left: 3rem;   /* rem, not em — matches the slider's 3em at 16px root */
+  bottom: 3rem;
+  margin: 0;
+  max-width: 20em;
+  font-family: var(--font-hand);
+  font-size: 22px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  opacity: 0.75;
+  pointer-events: none; /* never in the way of the diagram */
+}
