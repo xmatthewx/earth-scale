@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="earth-files/style.css">
 </head>
 <body>
 
@@ -21,20 +21,24 @@
       <div class="ss-marks" id="ss-marks"></div>
     </div>
   </div>
-  <svg id="diagram" width="100%" style="overflow: visible;"></svg>
+  <svg id="diagram"></svg>
   <div id="offscreen-hints"></div>
+  <!-- Statement comes after the diagram in source order. On wide screens it's
+       positioned, so this makes no difference; on narrow it becomes the coda
+       you arrive at once you've scrolled the whole way down. -->
   <p id="statement">
     A whisper of air wrapping a hunk of rock, a pale blue dot<br>
     Ten kilometers up, ten more down<br>
-    All the life and our knowledge emerged from this thin line
+    All the life and our knowledge emerged from this thin line<br>
+    Oceans slosh upside down under your feet, pulled in tides 
   </p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js"></script>
-<script src="features.js"></script>
-<script src="terra.js"></script>
-<script src="render.js"></script>
-<script src="main.js"></script>
+<script src="earth-files/features.js"></script>
+<script src="earth-files/terra.js"></script>
+<script src="earth-files/render.js"></script>
+<script src="earth-files/main.js"></script>
 
 </body>
 </html>

@@ -42,4 +42,14 @@ setScale(KM_PER_PX);
 // Off-screen hints depend on where you're scrolled, not just the scale
 const refreshHints = () => updateOffscreenHints(svg);
 addEventListener('scroll', refreshHints, { passive: true });
-addEventListener('resize', refreshHints);
+
+// Canvas width sets the km-per-pixel ratio and viewport height sets the top
+// margin, so either one can invalidate the drawing. measureLayout reports
+// whether anything actually moved, which matters because rendering changes the
+// svg's own height — that retriggers the observer and would otherwise loop.
+const relayout = () => {
+  if (measureLayout(svg)) render(rc, svg);
+  else refreshHints();
+};
+addEventListener('resize', relayout);
+new ResizeObserver(relayout).observe(svg);

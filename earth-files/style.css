@@ -13,13 +13,25 @@
   }
 }
 body { background: #111; }
+
+/* The rendered width here is the km-per-pixel contract: render.js measures this
+   element and builds a viewBox to match, so one user unit is one CSS pixel.
+   Uncapped, so the diagram uses whatever width the window offers. */
+#diagram {
+  display: block;
+  width: 100%;
+  overflow: visible; /* at low km/px the earth's arc reaches far past the viewBox */
+}
+
 /* === scale slider === */
 #scale-slider-wrap {
   position: fixed;
   left: 3em;
   top: 3em;
-  /* the diagram's axis sits at 280/680 of the svg width (41vw); keep clear of it */
-  width: clamp(150px, calc(41vw - 90px), 260px);
+  /* Keep clear of the diagram's axis. render.js publishes its position as
+     --axis-x, so retuning AXIS_RATIO moves this too; the 41vw fallback only
+     covers the first paint before the script runs. */
+  width: clamp(150px, calc(var(--axis-x, 41vw) - 90px), 260px);
   font-family: var(--font-hand);
   --ss-thumb: 18px;
 }
@@ -147,4 +159,47 @@ body { background: #111; }
   color: var(--color-text-secondary);
   opacity: 0.75;
   pointer-events: none; /* never in the way of the diagram */
+}
+
+/* === leaving the gutter ===
+   The slider and statement both hide in the empty column left of the axis. That
+   gutter is 41% of the window, so each one collides with the diagram once the
+   window shrinks past what it needs — and they need very different amounts, so
+   they leave at different widths rather than sharing one breakpoint. */
+
+/* The statement is the greedier of the two: 20em of text plus its 3rem inset
+   wants ~490px of gutter, which the axis only clears above ~1250px. Below that
+   it drops into the flow and becomes the coda at the end of the scroll. */
+@media (max-width: 1250px) {
+  #statement {
+    position: static;
+    max-width: 26em;
+    margin: 2rem 1.25rem 1rem;
+    pointer-events: auto;
+  }
+}
+
+/* The slider needs only ~200px of gutter, so it holds on until ~700px. */
+@media (max-width: 700px) {
+  :root { --ss-bar-h: 7rem; } /* approximate; keeps the diagram's end clear of the bar */
+
+  body { padding-bottom: var(--ss-bar-h); }
+
+  /* Pinned to the bottom, not scrolled away at the top: at 25 km/px the page is
+     two dozen screens tall, and the scale picker is the point of the app. */
+  #scale-slider-wrap {
+    inset: auto 0 0 0;
+    width: auto;
+    padding: 0.75rem 1.25rem 0.5rem;
+    background: #111;
+    border-top: 1px solid var(--color-text-tertiary);
+  }
+
+  /* body's padding-bottom keeps the coda clear of the slider bar */
+  #statement { margin-bottom: 1.5rem; }
+
+  #offscreen-hints {
+    right: 1.5em;
+    bottom: calc(var(--ss-bar-h) + 1rem);
+  }
 }

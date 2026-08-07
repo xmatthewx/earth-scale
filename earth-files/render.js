@@ -1,12 +1,69 @@
 // === CONSTANTS ===
 let KM_PER_PX = 2;
 const ORIGIN_KM = 800;
-const ORIGIN_Y = 20;
 const EARTH_R_KM = 6350;
-const SVG_WIDTH = 680;
-const AXIS_X = 280;
-const TICK_HALF = 5;
-const LEADER_LEN = 30;
+
+// Breathing room above the top feature and below the bottom one. Pure padding,
+// so it costs no accuracy — it just keeps the highest tick off the top edge.
+// Grows with the viewport so a large screen opens on a composed frame.
+let ORIGIN_Y = 20;
+function topMargin() {
+  return Math.round(Math.min(140, Math.max(36, innerHeight * 0.1)));
+}
+
+// Distances on the axis are locked to real kilometers, so labels are the only
+// thing left to tune for legibility. Every type and label number below is
+// written at the size it was originally drawn, times this — one knob for the
+// whole annotation layer. Raise it if the diagram reads small.
+const LABEL_SCALE = 1.75;
+const TICK_HALF = 5 * LABEL_SCALE;
+const LEADER_LEN = 30 * LABEL_SCALE;
+const LABEL_PAD = 5 * LABEL_SCALE;
+
+// The canvas is measured rather than fixed, so one user unit always renders as
+// exactly one CSS pixel. That equality is the whole point: it's what makes the
+// "1 px = N km" readout literally true instead of true-at-one-window-width.
+// #diagram's width in style.css decides the actual number.
+// How far across the canvas the axis sits. It slides left as the canvas narrows
+// — a phone needs it well left so labels have somewhere to go, a wide screen
+// looks better balanced near centre. Interpolated between these two anchors
+// rather than stepped at a breakpoint, so it drifts smoothly during a resize.
+const AXIS_NARROW = { width: 400,  ratio: 0.25 };
+const AXIS_WIDE   = { width: 1400, ratio: 0.5  };
+let AXIS_RATIO_OVERRIDE = null; // set from the console to pin a value while tuning
+
+function axisRatioFor(width) {
+  if (AXIS_RATIO_OVERRIDE != null) return AXIS_RATIO_OVERRIDE;
+  const t = (width - AXIS_NARROW.width) / (AXIS_WIDE.width - AXIS_NARROW.width);
+  const clamped = Math.min(1, Math.max(0, t));
+  return AXIS_NARROW.ratio + (AXIS_WIDE.ratio - AXIS_NARROW.ratio) * clamped;
+}
+
+const LAYOUT_REF_WIDTH = 680;   // width the labelOffset dx values were tuned against
+let SVG_WIDTH = LAYOUT_REF_WIDTH;
+let AXIS_RATIO = axisRatioFor(SVG_WIDTH);
+let AXIS_X = SVG_WIDTH * AXIS_RATIO;
+
+// Returns true only when something changed, so callers can skip a redraw.
+function measureLayout(svg) {
+  const w = Math.round(svg.getBoundingClientRect().width);
+  const m = topMargin();
+  const changed = (!!w && w !== SVG_WIDTH) || m !== ORIGIN_Y;
+
+  if (w) SVG_WIDTH = w;
+  ORIGIN_Y = m;
+
+  // Recomputed on every pass rather than only on change, so the axis can be
+  // retuned live: set AXIS_RATIO_OVERRIDE in the console, call render(rc, svg),
+  // watch it move. Set it back to null to resume tracking the canvas width.
+  AXIS_RATIO = axisRatioFor(SVG_WIDTH);
+  AXIS_X = SVG_WIDTH * AXIS_RATIO;
+  // Published so the CSS gutter tracks the axis instead of hardcoding 41vw and
+  // silently drifting the moment AXIS_RATIO changes.
+  document.documentElement.style.setProperty('--axis-x', AXIS_X + 'px');
+
+  return changed;
+}
 
 function y(km) { return ORIGIN_Y + (ORIGIN_KM - km) / KM_PER_PX; }
 function mirrorAltitude(km) { return -(EARTH_R_KM * 2) - km; }
@@ -81,22 +138,29 @@ function renderTerra(rc, svg) {
 }
 
 // === LABEL COLLISION DETECTION ===
-const LABEL_GAP = 22; // minimum vertical px between label anchors
+const LABEL_GAP = 22 * LABEL_SCALE; // minimum vertical px between label anchors
 
 function computePlacement(feat, altitudeKm, isMirrored) {
   const yPos = y(altitudeKm);
   const offset = feat.labelOffset;
+  // Horizontal offsets were hand-tuned against a 680 canvas. Shrink them on
+  // narrower ones so labels don't run off the edge; never stretch past the
+  // original spacing on wider ones. Note this deliberately does NOT pick up
+  // LABEL_SCALE the way the vertical nudges do: dy separates two lines of type
+  // and has to grow with it, but dx is a horizontal position and belongs to the
+  // width budget. Multiplying dx by both cancelled the shrink out entirely.
+  const k = Math.min(1, SVG_WIDTH / LAYOUT_REF_WIDTH);
   let labelX, labelY;
 
   if (feat.labelSide === 'left') {
-    labelX = AXIS_X - TICK_HALF - 8;
+    labelX = AXIS_X - TICK_HALF - 8 * LABEL_SCALE;
     labelY = yPos;
   } else if (offset) {
-    const dy = isMirrored ? -offset.dy : offset.dy;
-    labelX = AXIS_X + TICK_HALF + offset.dx + 5;
+    const dy = (isMirrored ? -offset.dy : offset.dy) * LABEL_SCALE;
+    labelX = AXIS_X + TICK_HALF + offset.dx * k + LABEL_PAD;
     labelY = yPos + dy;
   } else {
-    labelX = AXIS_X + TICK_HALF + LEADER_LEN + 5;
+    labelX = AXIS_X + TICK_HALF + LEADER_LEN * k + LABEL_PAD;
     labelY = yPos;
   }
 
@@ -154,42 +218,47 @@ function renderPlacement(rc, parent, p) {
   if (feat.color) {
     const h = feat.span_km / KM_PER_PX;
     svgEl('rect', {
-      x: AXIS_X - 0.5, y: yPos - h / 2,
-      width: 1, height: h,
+      x: AXIS_X - LABEL_SCALE / 2, y: yPos - h / 2,
+      width: LABEL_SCALE, height: h,
       fill: feat.color,
     }, parent);
   }
 
   // Labels
+  const nameSize = 14 * LABEL_SCALE;
+  const altSize = 10 * LABEL_SCALE;
+  const nameY = labelY - 2 * LABEL_SCALE;
+  const altY = labelY + 8 * LABEL_SCALE;
+
   if (feat.labelSide === 'left') {
     svgEl('text', {
-      x: labelX, y: labelY - 2,
-      'text-anchor': 'end', 'font-size': 14,
+      x: labelX, y: nameY,
+      'text-anchor': 'end', 'font-size': nameSize,
       fill: 'var(--color-text-primary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = feat.name;
 
     svgEl('text', {
-      x: labelX, y: labelY + 8,
-      'text-anchor': 'end', 'font-size': 10,
+      x: labelX, y: altY,
+      'text-anchor': 'end', 'font-size': altSize,
       fill: 'var(--color-text-secondary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = formatAltitude(altitudeKm);
   } else {
     // Leader line from tick to label
-    const leaderEndX = labelX - 5;
+    const leaderEndX = labelX - LABEL_PAD;
     drawLine(rc, parent, AXIS_X + TICK_HALF, yPos, leaderEndX, labelY, 0.75, { opacity: 0.5, dashed: true });
 
     svgEl('text', {
-      x: labelX, y: labelY - 2,
-      'font-size': 14,
+      x: labelX, y: nameY,
+      'font-size': nameSize,
       fill: 'var(--color-text-primary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = feat.name;
 
     svgEl('text', {
-      x: labelX, y: labelY + 8,
-      'font-size': 10,
+      x: labelX, y: altY,
+      'font-size': altSize,
       fill: 'var(--color-text-secondary)',
       'font-family': 'var(--font-hand)',
     }, parent).textContent = formatAltitude(altitudeKm);
@@ -197,6 +266,7 @@ function renderPlacement(rc, parent, p) {
 }
 
 function render(rc, svg) {
+  measureLayout(svg);
   svg.querySelectorAll('.structure, .terra, .generated').forEach(el => el.remove());
 
   // Compute axis extent from earth mirror range + visible features + visible terra
