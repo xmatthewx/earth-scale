@@ -104,7 +104,72 @@ function renderStructure(rc, svg, axisTopY, axisBotY) {
   drawLine(rc, g, AXIS_X, axisTopY, AXIS_X, axisBotY, 1, { opacity: 0.33 });
 }
 
+// Washes live in <defs> and are referenced by id. Their stops are in
+// objectBoundingBox units — relative to the shape rather than absolute pixels —
+// which is the whole reason they survive a body that renders anywhere from 12
+// to 12,000 pixels across.
+function washId(t) { return 'wash-' + t.name.replace(/\s+/g, '-'); }
+
+// CSS understands hsl but not hsb, and hsb is what design tools speak — so the
+// palette is authored in hsb and converted here. h 0-360, s and b 0-100.
+function hsbToCss([h, s, b]) {
+  const sat = s / 100, bri = b / 100;
+  const l = bri * (1 - sat / 2);
+  const sl = (l === 0 || l === 1) ? 0 : (bri - l) / Math.min(l, 1 - l);
+  return `hsl(${h} ${Math.round(sl * 100)}% ${Math.round(l * 100)}%)`;
+}
+
+// Mottling comes from fractal noise rendered into one modest tile and repeated,
+// not from a filter over the body itself: at 1 km/px the earth is ~12,700px
+// across and a filter region that large risks browser limits. Tiling also keeps
+// the texture constant in screen pixels, which is the right model — this is
+// paper grain, a property of the surface rather than of the thing drawn on it.
+const GRAIN_TILE = 400; // large enough that the repeat doesn't read as a grid
+// const GRAIN_FREQ = 0.006;
+const GRAIN_FREQ = 0.011;
+
+function renderGrainDefs(defs) {
+  const filter = svgEl('filter', {
+    id: 'wash-grain', filterUnits: 'userSpaceOnUse',
+    x: 0, y: 0, width: GRAIN_TILE, height: GRAIN_TILE,
+  }, defs);
+  svgEl('feTurbulence', {
+    type: 'fractalNoise', baseFrequency: GRAIN_FREQ, numOctaves: 4, seed: 7,
+  }, filter);
+  // Flatten the noise to white and keep only its alpha, so what tiles across
+  // the body is an uneven veil of pigment rather than coloured static.
+  svgEl('feColorMatrix', {
+    type: 'matrix',
+    values: '0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0',
+  }, filter);
+
+  const pattern = svgEl('pattern', {
+    id: 'wash-grain-tile', patternUnits: 'userSpaceOnUse',
+    width: GRAIN_TILE, height: GRAIN_TILE,
+  }, defs);
+  svgEl('rect', {
+    width: GRAIN_TILE, height: GRAIN_TILE, filter: 'url(#wash-grain)',
+  }, pattern);
+}
+
+// Rebuilt on every render rather than cached, so edits to the palette show up
+// on the next redraw — same live-tuning affordance as AXIS_RATIO_OVERRIDE.
+function renderWashDefs(svg) {
+  svg.querySelector('defs')?.remove();
+  const defs = svgEl('defs', {}, svg);
+  renderGrainDefs(defs);
+
+  for (const t of TERRA) {
+    if (!t.wash) continue;
+    const grad = svgEl('radialGradient', { id: washId(t) }, defs);
+    for (const s of t.wash) {
+      svgEl('stop', { offset: s.offset, 'stop-color': hsbToCss(s.hsb) }, grad);
+    }
+  }
+}
+
 function renderTerra(rc, svg) {
+  renderWashDefs(svg);
   const g = svgEl('g', { class: 'terra' }, svg);
 
   for (const t of TERRA) {
@@ -112,26 +177,35 @@ function renderTerra(rc, svg) {
 
     const cy = y(t.center_km);
     const r = t.radius_km / KM_PER_PX;
-    const opts = { roughness: t.roughness ?? 0 };
 
-    if (t.fill) {
-      opts.fill = t.fill;
-      opts.fillStyle = t.fillStyle ?? 'hachure';
-      opts.fillWeight = t.fillWeight ?? 0.5;
-      opts.hachureGap = t.hachureGap ?? 4;
-    } else {
-      opts.fill = 'none';
+    // Solid bodies are plain circles, deliberately not rough.js: it approximates
+    // an ellipse with nine points, which at a 6350px radius wanders a few
+    // hundred pixels off true and sent the old hachure fill out into space.
+    if (t.wash) {
+      const node = svgEl('circle', {
+        cx: AXIS_X, cy, r, fill: `url(#${washId(t)})`,
+      }, g);
+      if (t.opacity != null) node.style.opacity = t.opacity;
+
+      // Same circle again, veiled in grain. Drawn as its own shape rather than
+      // filtered onto the wash so the body's edge stays exact.
+      if (t.grain) {
+        const mottle = svgEl('circle', {
+          cx: AXIS_X, cy, r, fill: 'url(#wash-grain-tile)',
+        }, g);
+        mottle.style.opacity = t.grain;
+        mottle.style.mixBlendMode = 'soft-light';
+      }
+      continue;
     }
 
-    if (t.stroke) {
-      opts.stroke = t.stroke;
-      opts.strokeWidth = t.strokeWidth_km / KM_PER_PX;
-    } else {
-      opts.stroke = 'none';
-      opts.strokeWidth = 0;
-    }
-
-    const node = rc.circle(AXIS_X, cy, r * 2, opts);
+    // Outlines stay hand-drawn — these thin lines are what the diagram is about.
+    const node = rc.circle(AXIS_X, cy, r * 2, {
+      roughness: t.roughness ?? 0,
+      fill: 'none',
+      stroke: t.stroke,
+      strokeWidth: t.strokeWidth_km / KM_PER_PX,
+    });
     if (t.opacity != null) node.style.opacity = t.opacity;
     g.appendChild(node);
   }

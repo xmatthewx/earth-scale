@@ -26,6 +26,7 @@ body { background: #111; }
 /* === scale slider === */
 #scale-slider-wrap {
   position: fixed;
+  z-index: 101;
   left: 3em;
   top: 3em;
   /* Keep clear of the diagram's axis. render.js publishes its position as
@@ -149,6 +150,7 @@ body { background: #111; }
 /* === statement === */
 #statement {
   position: fixed;
+  z-index: 99;
   left: 3rem;   /* rem, not em — matches the slider's 3em at 16px root */
   bottom: 3rem;
   margin: 0;
@@ -158,6 +160,7 @@ body { background: #111; }
   line-height: 1.4;
   color: var(--color-text-secondary);
   opacity: 0.75;
+  text-wrap: pretty;
   pointer-events: none; /* never in the way of the diagram */
 }
 
@@ -197,6 +200,7 @@ body { background: #111; }
 
   /* body's padding-bottom keeps the coda clear of the slider bar */
   #statement { margin-bottom: 1.5rem; }
+  #statement br { display: none; }
 
   #offscreen-hints {
     right: 1.5em;

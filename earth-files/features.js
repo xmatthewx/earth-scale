@@ -21,7 +21,7 @@ const FEATURES = [
     labelOffset: { dx: 30, dy: -7 },
     major: true,
     minScale: 0,
-    maxScale: 101,
+    maxScale: 99,
   },
   {
     name: 'brooklyn to greenport',
@@ -29,7 +29,7 @@ const FEATURES = [
     color: null,
     span_km: 0,
     labelSide: 'right',
-    mirror: true,
+    mirror: false,
     labelOffset: { dx: 80, dy: -5 },
     major: true,
     minScale: 0,
@@ -57,7 +57,7 @@ const FEATURES = [
     labelOffset: { dx: 30, dy: -14 },
     major: false,
     minScale: 0,
-    maxScale: 11,
+    maxScale: 9,
   },
   {
     name: 'deepest ocean',
@@ -69,7 +69,7 @@ const FEATURES = [
     labelOffset: { dx: 20, dy: 25 },
     major: false,
     minScale: 0,
-    maxScale: 11,
+    maxScale: 9,
   },
   {
     name: "center of the earth",
@@ -105,7 +105,7 @@ const FEATURES = [
     mirror: false,
     labelOffset: null,
     major: false,
-    minScale: 101,
+    minScale: 99,
     maxScale: Infinity,
   },
   {
@@ -117,7 +117,7 @@ const FEATURES = [
     mirror: false,
     labelOffset: null,
     major: false,
-    minScale: 101,
+    minScale: 99,
     maxScale: Infinity,
   },
 ];
