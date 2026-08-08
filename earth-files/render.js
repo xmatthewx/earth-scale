@@ -17,8 +17,31 @@ function topMargin() {
 // whole annotation layer. Raise it if the diagram reads small.
 const LABEL_SCALE = 1.75;
 const TICK_HALF = 5 * LABEL_SCALE;
-const LEADER_LEN = 30 * LABEL_SCALE;
 const LABEL_PAD = 5 * LABEL_SCALE;
+
+// Type sizes live up here rather than at the draw site so the collision gap can
+// be derived from them instead of guessed alongside them.
+const NAME_SIZE = 14 * LABEL_SCALE;
+const ALT_SIZE  = 10 * LABEL_SCALE;
+const LINE_H    = 15 * LABEL_SCALE; // baseline to baseline within a two-line name
+
+// The default gap between tick and label — the dx a feature gets when it doesn't
+// ask for one. Deliberately unscaled, in the same units as labelOffset.dx,
+// because it *is* the default labelOffset.dx. When this was scaled and dx wasn't,
+// the two drifted apart and every override quietly became a pull-in toward the
+// axis: four features ended up carrying a dx that only meant "leave me be".
+const LEADER_LEN = 30;
+const DEFAULT_OFFSET = { dx: LEADER_LEN, dy: 0 };
+
+// Layer 3, the clamp: how close a label may come to the canvas edge, and how
+// short its leader may get while being pulled back from it.
+const EDGE_MARGIN = 8 * LABEL_SCALE;
+const MIN_LEADER = 6;
+
+// Set true in the console and redraw to see the clamp work: labels the collision
+// pass moved go amber, labels pulled in from the edge go red. It's how you tell
+// "my dy was too small" apart from "the collision pass ate my dy".
+let LABEL_DEBUG = true;
 
 // The canvas is measured rather than fixed, so one user unit always renders as
 // exactly one CSS pixel. That equality is the whole point: it's what makes the
@@ -211,12 +234,47 @@ function renderTerra(rc, svg) {
   }
 }
 
-// === LABEL COLLISION DETECTION ===
-const LABEL_GAP = 22 * LABEL_SCALE; // minimum vertical px between label anchors
+// === LABELS ===
+// A name may be a string or an array of strings. Where to break a two-line name
+// is a composition decision — which words belong together — so it's an explicit
+// choice in features.js rather than something falling out of an automatic wrap.
+function nameLines(feat) {
+  return Array.isArray(feat.name) ? feat.name : [feat.name];
+}
+function nameText(feat) { return nameLines(feat).join(' '); }
+
+// The label block: name lines stacked, altitude beneath, centred on labelY — so
+// a second line grows the block both ways instead of pushing it down off its tick.
+function blockBaselines(labelY, lineCount) {
+  const rise = (lineCount - 1) * LINE_H / 2;
+  const firstName = labelY - 2 * LABEL_SCALE - rise;
+  return {
+    names: Array.from({ length: lineCount }, (_, i) => firstName + i * LINE_H),
+    alt: labelY + 8 * LABEL_SCALE + rise,
+  };
+}
+
+// Ink height of a block, cap of the first name line to descender of the altitude.
+// Derived from the type sizes rather than parked beside them as a constant, so
+// retuning LABEL_SCALE or adding a line can't leave the collision gap stale.
+function blockHeight(lineCount) {
+  return (lineCount - 1) * LINE_H
+       + NAME_SIZE * 0.72 + 10 * LABEL_SCALE + ALT_SIZE * 0.28;
+}
+
+// Two neighbours clear each other at half of each block apart, plus a hair so
+// they don't merely touch.
+function minGap(a, b) {
+  return (blockHeight(a.lines.length) + blockHeight(b.lines.length)) / 2
+       + 2 * LABEL_SCALE;
+}
 
 function computePlacement(feat, altitudeKm, isMirrored) {
   const yPos = y(altitudeKm);
-  const offset = feat.labelOffset;
+  // One path for defaults and overrides: a labelOffset supplies whichever of the
+  // two it cares about and inherits the rest. Holding both in one unit system is
+  // what lets `dx: 30` mean "the default" again instead of "pull me in by 22".
+  const offset = { ...DEFAULT_OFFSET, ...feat.labelOffset };
   // Horizontal offsets were hand-tuned against a 680 canvas. Shrink them on
   // narrower ones so labels don't run off the edge; never stretch past the
   // original spacing on wider ones. Note this deliberately does NOT pick up
@@ -224,38 +282,104 @@ function computePlacement(feat, altitudeKm, isMirrored) {
   // and has to grow with it, but dx is a horizontal position and belongs to the
   // width budget. Multiplying dx by both cancelled the shrink out entirely.
   const k = Math.min(1, SVG_WIDTH / LAYOUT_REF_WIDTH);
-  let labelX, labelY;
 
+  let labelX, labelY;
   if (feat.labelSide === 'left') {
     labelX = AXIS_X - TICK_HALF - 8 * LABEL_SCALE;
     labelY = yPos;
-  } else if (offset) {
-    const dy = (isMirrored ? -offset.dy : offset.dy) * LABEL_SCALE;
-    labelX = AXIS_X + TICK_HALF + offset.dx * k + LABEL_PAD;
-    labelY = yPos + dy;
   } else {
-    labelX = AXIS_X + TICK_HALF + LEADER_LEN * k + LABEL_PAD;
-    labelY = yPos;
+    labelX = AXIS_X + TICK_HALF + offset.dx * k + LABEL_PAD;
+    labelY = yPos + (isMirrored ? -offset.dy : offset.dy) * LABEL_SCALE;
   }
 
-  return { feat, altitudeKm, isMirrored, yPos, labelX, labelY, side: feat.labelSide };
+  return {
+    feat, altitudeKm, isMirrored, yPos, labelX, labelY,
+    side: feat.labelSide,
+    lines: nameLines(feat),
+    pushed: 0,      // how far the collision pass moved this one
+    clamped: false, // whether the edge clamp had to catch it, set at draw time
+  };
 }
 
+// Layer 3, vertical. A backstop, not a layout engine: it separates labels that
+// genuinely overlap and does nothing else.
+//
+// It spreads a crowded group around where the group already sits, instead of
+// pushing each colliding label down onto the next one. That distinction is the
+// whole point. Pushing one direction slides a cluster steadily downward, and it
+// returns a label you nudged up to roughly where it started — so the nudge reads
+// as having done nothing, and you can't tell a too-small dy from an eaten one.
+// Spreading keeps the order and the spacing you asked for; the group just
+// breathes wider.
+//
+// The two-line version: subtract the gap each label owes its predecessor, which
+// turns "stay far enough apart" into the simpler "stay in order", then average
+// any run that's out of order until none is. Averaging a run is what makes this
+// centre-preserving, and doing it exactly means one pass settles it — an
+// iterative push-apart creeps and can still leave an overlap when it gives up.
 function resolveCollisions(placements) {
-  // Separate left and right, resolve each independently
-  const left = placements.filter(p => p.side === 'left').sort((a, b) => a.labelY - b.labelY);
-  const right = placements.filter(p => p.side === 'right').sort((a, b) => a.labelY - b.labelY);
+  for (const side of ['left', 'right']) {
+    const group = placements
+      .filter(p => p.side === side)
+      .sort((a, b) => a.labelY - b.labelY);
+    if (group.length < 2) continue;
 
-  for (const group of [left, right]) {
-    for (let i = 1; i < group.length; i++) {
-      const prev = group[i - 1];
-      const curr = group[i];
-      const overlap = (prev.labelY + LABEL_GAP) - curr.labelY;
-      if (overlap > 0) {
-        curr.labelY += overlap;
+    // Each label's target, less the room it owes everything above it.
+    let owed = 0;
+    const targets = group.map((p, i) => {
+      if (i > 0) owed += minGap(group[i - 1], p);
+      return p.labelY - owed;
+    });
+
+    // Pool runs that are out of order into blocks holding their mean.
+    const blocks = [];
+    for (const t of targets) {
+      let b = { sum: t, count: 1 };
+      while (blocks.length && blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count > b.sum / b.count) {
+        const prev = blocks.pop();
+        b = { sum: b.sum + prev.sum, count: b.count + prev.count };
+      }
+      blocks.push(b);
+    }
+
+    // Put the owed room back, and the group is spaced.
+    owed = 0;
+    let i = 0;
+    for (const b of blocks) {
+      const mean = b.sum / b.count;
+      for (let n = 0; n < b.count; n++, i++) {
+        if (i > 0) owed += minGap(group[i - 1], group[i]);
+        const before = group[i].labelY;
+        group[i].labelY = mean + owed;
+        group[i].pushed = Math.abs(group[i].labelY - before);
       }
     }
   }
+}
+
+// Layer 3, horizontal. The one hard guarantee: a label cannot leave the canvas.
+// It measures what was actually drawn, so there's no width table to keep in sync
+// and it picks up whatever the hand font really does with a given string. Dumb on
+// purpose — it pulls a label back from the edge and stops. It won't flip sides,
+// shrink type, or re-break a name; those are compositional calls and they belong
+// to layer 2, in features.js, where you can see them.
+function clampLabelX(p, texts) {
+  const width = Math.max(...texts.map(t => t.getComputedTextLength()));
+
+  if (p.side === 'left') {
+    const min = EDGE_MARGIN + width;
+    if (p.labelX >= min) return p.labelX;
+    p.clamped = true;
+    return Math.min(min, AXIS_X - TICK_HALF - MIN_LEADER);
+  }
+
+  const max = SVG_WIDTH - EDGE_MARGIN - width;
+  if (p.labelX <= max) return p.labelX;
+  p.clamped = true;
+  // A label wider than the whole gutter can't be saved by sliding it. Park it at
+  // the shortest leader we're willing to draw and let it overhang: that's the
+  // signal to break the name across two lines in features.js.
+  return Math.max(max, AXIS_X + TICK_HALF + MIN_LEADER + LABEL_PAD);
 }
 
 function renderFeatures(rc, svg, features) {
@@ -282,11 +406,13 @@ function renderFeatures(rc, svg, features) {
 }
 
 function renderPlacement(rc, parent, p) {
-  const { feat, altitudeKm, yPos, labelX, labelY } = p;
-  const tickWidth = feat.major ? 1.5 : 1;
+  const { feat, altitudeKm, yPos, labelY } = p;
+  const isLeft = p.side === 'left';
+  const anchor = isLeft ? { 'text-anchor': 'end' } : {};
 
   // Tick mark
-  drawLine(rc, parent, AXIS_X - TICK_HALF, yPos, AXIS_X + TICK_HALF, yPos, tickWidth);
+  drawLine(rc, parent, AXIS_X - TICK_HALF, yPos, AXIS_X + TICK_HALF, yPos,
+           feat.major ? 1.5 : 1);
 
   // Colored rect (height scales with KM_PER_PX)
   if (feat.color) {
@@ -298,44 +424,44 @@ function renderPlacement(rc, parent, p) {
     }, parent);
   }
 
-  // Labels
-  const nameSize = 14 * LABEL_SCALE;
-  const altSize = 10 * LABEL_SCALE;
-  const nameY = labelY - 2 * LABEL_SCALE;
-  const altY = labelY + 8 * LABEL_SCALE;
-
-  if (feat.labelSide === 'left') {
-    svgEl('text', {
-      x: labelX, y: nameY,
-      'text-anchor': 'end', 'font-size': nameSize,
+  // The text goes in at x=0 first so the clamp has something real to measure —
+  // getComputedTextLength needs the nodes in the document, and x doesn't affect
+  // what it returns. Then the whole block moves to wherever the clamp allows.
+  const g = svgEl('g', { class: 'label' }, parent);
+  const base = blockBaselines(labelY, p.lines.length);
+  const texts = p.lines.map((line, i) => {
+    const node = svgEl('text', {
+      x: 0, y: base.names[i], ...anchor,
+      'font-size': NAME_SIZE,
       fill: 'var(--color-text-primary)',
       'font-family': 'var(--font-hand)',
-    }, parent).textContent = feat.name;
+    }, g);
+    node.textContent = line;
+    return node;
+  });
 
-    svgEl('text', {
-      x: labelX, y: altY,
-      'text-anchor': 'end', 'font-size': altSize,
-      fill: 'var(--color-text-secondary)',
-      'font-family': 'var(--font-hand)',
-    }, parent).textContent = formatAltitude(altitudeKm);
-  } else {
-    // Leader line from tick to label
-    const leaderEndX = labelX - LABEL_PAD;
-    drawLine(rc, parent, AXIS_X + TICK_HALF, yPos, leaderEndX, labelY, 0.75, { opacity: 0.5, dashed: true });
+  const alt = svgEl('text', {
+    x: 0, y: base.alt, ...anchor,
+    'font-size': ALT_SIZE,
+    fill: 'var(--color-text-secondary)',
+    'font-family': 'var(--font-hand)',
+  }, g);
+  alt.textContent = formatAltitude(altitudeKm);
+  texts.push(alt);
 
-    svgEl('text', {
-      x: labelX, y: nameY,
-      'font-size': nameSize,
-      fill: 'var(--color-text-primary)',
-      'font-family': 'var(--font-hand)',
-    }, parent).textContent = feat.name;
+  const labelX = clampLabelX(p, texts);
+  for (const t of texts) t.setAttribute('x', labelX);
 
-    svgEl('text', {
-      x: labelX, y: altY,
-      'font-size': altSize,
-      fill: 'var(--color-text-secondary)',
-      'font-family': 'var(--font-hand)',
-    }, parent).textContent = formatAltitude(altitudeKm);
+  // Leader drawn last so it lands on wherever the clamp finally put the label,
+  // rather than pointing at where the label would have gone.
+  if (!isLeft) {
+    drawLine(rc, g, AXIS_X + TICK_HALF, yPos, labelX - LABEL_PAD, labelY,
+             0.75, { opacity: 0.5, dashed: true });
+  }
+
+  if (LABEL_DEBUG) {
+    const tint = p.clamped ? '#ff5252' : p.pushed > 0.5 ? '#ffb300' : null;
+    if (tint) g.querySelectorAll('text').forEach(t => t.setAttribute('fill', tint));
   }
 }
 
@@ -395,7 +521,7 @@ function updateOffscreenHints(svg) {
   }
 
   // This runs on every scroll event, so only touch the DOM when it changes.
-  const signature = showing.map(s => s.feat.name + s.dir).join('|');
+  const signature = showing.map(s => nameText(s.feat) + s.dir).join('|');
   if (signature === hintSignature) return;
   hintSignature = signature;
 
@@ -406,7 +532,7 @@ function makeHint(svg, feat, dir) {
   const btn = document.createElement('button');
   btn.className = 'oh';
   btn.type = 'button';
-  btn.textContent = feat.name;
+  btn.textContent = nameText(feat); // the corner hint stays one line however the label breaks
 
   const arrow = svgEl('svg', {
     class: 'oh-arrow', width: 14, height: 22, viewBox: '0 0 14 22',

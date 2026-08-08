@@ -11,11 +11,8 @@ const TERRA = [
     // Stops are relative to the shape, so this reads the same whether the earth
     // is 12px across or 12,000.
     wash: [
-      // { offset: 0,    hsb: [26, 85, 58] },
       { offset: 0,    hsb: [26, 65, 38] },
-      // { offset: 0.55, hsb: [20, 55, 26] },
       { offset: 0.55, hsb: [20, 35, 16] },
-      // { offset: 1,    hsb: [18, 32, 15] },
       { offset: 1,    hsb: [18, 17, 9] },
     ],
     grain: 0.14,
@@ -38,8 +35,6 @@ const TERRA = [
     name: 'ocean',
     center_km: -6350,
     radius_km: 6344,
-    stroke: '#185FA5',
-    stroke: '#1167BD',
     stroke: '#1476D9',
     strokeWidth_km: 10,
     fill: null,

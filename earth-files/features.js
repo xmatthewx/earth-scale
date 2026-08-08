@@ -1,3 +1,8 @@
+// labelOffset is the taste layer: an optional nudge away from where the code
+// would put a label, for balance the code can't know about. Supply only the part
+// you mean — dx defaults to the standard leader length, dy to zero — and trust
+// the clamp in render.js to keep whatever you write inside the canvas.
+// A name may also be an array, to break it across two lines.
 const FEATURES = [
   {
     name: 'satellites',
@@ -6,7 +11,7 @@ const FEATURES = [
     span_km: 0,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 20, dy: -10 },
+    labelOffset: { dy: -10 },
     major: true,
     minScale: 0,
     maxScale: 101,
@@ -18,22 +23,22 @@ const FEATURES = [
     span_km: 0,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 30, dy: -7 },
+    labelOffset: { dy: -21 },
     major: true,
     minScale: 0,
-    maxScale: 99,
+    maxScale: 24,
   },
   {
-    name: 'brooklyn to greenport',
+    name: ['brooklyn to greenport'],
     altitude_km: 160,
     color: null,
     span_km: 0,
     labelSide: 'right',
     mirror: false,
-    labelOffset: { dx: 80, dy: -5 },
+    labelOffset: { dy: -25 },
     major: true,
     minScale: 0,
-    maxScale: 26,
+    maxScale: 9,
   },
   {
     name: 'space',
@@ -42,7 +47,7 @@ const FEATURES = [
     span_km: 0,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 30, dy: -4 },
+    labelOffset: { dx: 80, dy: -20 },
     major: true,
     minScale: 0,
     maxScale: 26,
@@ -54,10 +59,10 @@ const FEATURES = [
     span_km: 0,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 30, dy: -14 },
+    labelOffset: { dy: -18 },
     major: false,
     minScale: 0,
-    maxScale: 9,
+    maxScale: 4,
   },
   {
     name: 'deepest ocean',
@@ -66,7 +71,7 @@ const FEATURES = [
     span_km: 10,
     labelSide: 'right',
     mirror: true,
-    labelOffset: { dx: 20, dy: 25 },
+    labelOffset: { dy: 25 },
     major: false,
     minScale: 0,
     maxScale: 9,

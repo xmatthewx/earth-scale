@@ -39,6 +39,11 @@ function setScale(km) {
 
 setScale(KM_PER_PX);
 
+// The edge clamp measures real rendered text, so a first paint before Caveat
+// arrives would size every label against fallback metrics and then look subtly
+// wrong until something else forced a redraw.
+document.fonts?.ready.then(() => render(rc, svg));
+
 // Off-screen hints depend on where you're scrolled, not just the scale
 const refreshHints = () => updateOffscreenHints(svg);
 addEventListener('scroll', refreshHints, { passive: true });
